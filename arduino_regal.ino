@@ -11,8 +11,11 @@ int btnDownPin = 5;
 int beeperPin = 1;
 
 // globalni hodnoty
+enum pickResult {prNone, prConfirm, prCancel}; // vysledek pickovani
 int pickQuantity = 0;      // kolik se chce pickovat
-int currentQuantity = 0;   // kolik je aktualne zobrazeno pro pickovani
+int lastQuantity = 0;   // kolik je aktualne zobrazeno pro pickovani
+pickResult lastPickup = prNone;
+
 byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED }; // MAC adresa sitovky
 IPAddress ip(10, 0, 1, 150); // IP adresa
 
@@ -79,40 +82,59 @@ void loop()
 
 void checkEthernetClients()
 {
-  int cislo;
-  bool cteCislo = 0;
+  enum packetType {ptNone, ptSetPickup, ptGetPickup};
+  int quantity;
+  packetType packet = ptNone;
 
-  EthernetClient klient = server.available();
-  if (klient) {
-    Serial.println("Novy klient:");
-    while (klient.connected()) {
-      if (klient.available()) {
-        char c = klient.read(); // cteni packetu PyE
+  EthernetClient client = server.available();
+  if (client) {
+    Serial.println("Client connected:");
+    while (client.connected()) {
+      if (client.available()) {
+        char c = client.read(); // cteni packetu PyE
         Serial.write(c);
-        if (c == 'P') 
+        if (c == 'P') // posila se packet s mnozstvim pro zobrazeni
         {
-          cteCislo = 1;
+          packet = ptSetPickup;
           pickQuantity = 0;
-          currentQuantity = 0;
+          lastQuantity = 0;
+          lastPickup = prNone;
+        }
+        else if (c == 'G') // posila se packet s dotazem na vysledek
+        {
+          client.write('G');
+          Serial.println();
+          Serial.print("Sent: G");
+          client.write(lastQuantity);
+          Serial.print(lastQuantity);
+          if (lastPickup == prNone) { // jest se nenapickovalo
+            client.write('0');
+            Serial.print('0');
+          } else
+          {
+            client.write(lastPickup == prConfirm ? '2' : '1');            
+            Serial.print(lastPickup == prConfirm ? '2' : '1');
+          }
+          client.write('E');     
+          Serial.println('E');
         }
         else if (c == 'E') 
         {
-          cteCislo = 0;
+          packet = ptNone;
           break;
         }
-        else if (cteCislo == 1) {
+        else if (packet == ptSetPickup) {
           pickQuantity = (c-'0');
-          currentQuantity = pickQuantity;
-          cteCislo = 0;
+          lastQuantity = pickQuantity;
           displayQuantity();
         }
       }
     }
     delay(1);
     // uzavření spojení
-    klient.stop();
+    client.stop();
     Serial.println("");
-    Serial.println("Klient odpojen.");
+    Serial.println("Client disconnected.");
     Serial.println("---------------------");
   }
 }
@@ -129,15 +151,17 @@ void onConfirmPress()
     tone(beeperPin, NOTE_C5, 100);
     blink();
     pickQuantity=0;
+    lastPickup = prConfirm;
     displayConfirm();
     lc.shutdown(0,true);
   } else 
   {
     // TEST *************************************************
     pickQuantity=9;
-    currentQuantity=0;
+    lastQuantity=0;
+    lastPickup = prNone;
     displayQuantity();
-    delay(1000);
+    delay(100);
   }
 }
 
@@ -149,10 +173,11 @@ void onCancelPress()
     blink(); 
     tone(beeperPin, NOTE_C4, 100);
     pickQuantity=0;
+    lastPickup = prCancel;
     displayCancel();
     lc.shutdown(0,true);
   }
-  delay(1000);
+  delay(100);
 }
 
 // udalost po stisku Nahoru
@@ -162,10 +187,10 @@ void onUpPress()
   {
     blink(); 
     tone(beeperPin, NOTE_C1, 50);
-    if (currentQuantity<pickQuantity) currentQuantity++;
+    if (lastQuantity<pickQuantity) lastQuantity++;
     displayQuantity();
   }
-  delay(200);
+  delay(100);
 }
 
 // udalost po stisku Dolu
@@ -175,10 +200,10 @@ void onDownPress()
   {
     blink();
     tone(beeperPin, NOTE_C1, 50);
-    if (currentQuantity>0) currentQuantity--;
+    if (lastQuantity>0) lastQuantity--;
     displayQuantity();
   }
-  delay(200);
+  delay(100);
 }
 
 // *******************************************************
@@ -194,10 +219,10 @@ void displayQuantity()
     lc.shutdown(0,true);
   }
   else
-  if (currentQuantity>=0 && currentQuantity<=9) 
+  if (lastQuantity>=0 && lastQuantity<=9) 
   {
     lc.shutdown(0,false);
-    displayImage(numbers[currentQuantity]);
+    displayImage(numbers[lastQuantity]);
   }
 }
 
