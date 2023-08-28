@@ -12,9 +12,11 @@ int beeperPin = 1;
 
 // globalni hodnoty
 enum pickResult {prNone, prConfirm, prCancel}; // vysledek pickovani
+  enum packetType {ptNone, ptSetPickup, ptGetPickup}; // packety prikazu, ktery se prijima
 int pickQuantity = 0;      // kolik se chce pickovat
 int lastQuantity = 0;   // kolik je aktualne zobrazeno pro pickovani
-pickResult lastPickup = prNone;
+pickResult lastPickup = prNone; // stav posledniho picku
+packetType packet = ptNone; // aktualni prijimany packet
 
 byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED }; // MAC adresa sitovky
 IPAddress ip(10, 0, 1, 150); // IP adresa
@@ -59,10 +61,10 @@ void setup()
   lc.clearDisplay(0);
 
   // zapnutí komunikace s Ethernet Shieldem
-  Ethernet.begin(mac, ip);
-  server.begin();
-  Serial.print("Server je na IP adrese: ");
-  Serial.println(Ethernet.localIP());
+  // Ethernet.begin(mac, ip);
+  // server.begin();
+  // Serial.print("Server je na IP adrese: ");
+  // Serial.println(Ethernet.localIP());
 }
 
 // hlavni beh
@@ -73,7 +75,49 @@ void loop()
   if (digitalRead(btnUpPin) == LOW) onUpPress();
   if (digitalRead(btnDownPin) == LOW) onDownPress();
 
-  checkEthernetClients();
+  // DOCASNE ODSTAVENO checkEthernetClients();
+  checkSerialClients();
+}
+
+// *******************************************************
+// ************** obsluha COM portu ****************************
+// *******************************************************
+
+void checkSerialClients()
+{
+  int quantity;
+
+  if (Serial.available() > 0) {
+    char c = Serial.read(); // cteni packetu PyE
+    if (c == 'P') // posila se packet s mnozstvim pro zobrazeni
+    {
+      packet = ptSetPickup;
+      pickQuantity = 0;
+      lastQuantity = 0;
+      lastPickup = prNone;
+    }
+    else if (c == 'G') // posila se packet s dotazem na vysledek
+    {
+      Serial.write('G');
+      Serial.write(lastQuantity+'0');
+      if (lastPickup == prNone) { // jest se nenapickovalo
+        Serial.write('0');
+      } else
+      {
+        Serial.write(lastPickup == prConfirm ? '2' : '1');            
+      }
+      Serial.write('E');     
+    }
+    else if (c == 'E') 
+    {
+      packet = ptNone;
+    }
+    else if (packet == ptSetPickup) {
+      pickQuantity = (c-'0');
+      lastQuantity = pickQuantity;
+      displayQuantity();
+    }
+  }
 }
 
 // *******************************************************
@@ -161,7 +205,7 @@ void onConfirmPress()
     lastQuantity=0;
     lastPickup = prNone;
     displayQuantity();
-    delay(100);
+    delay(500);
   }
 }
 
